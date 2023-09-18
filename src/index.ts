@@ -1,6 +1,6 @@
-import { Elysia } from "elysia";
-import { Database } from 'bun:sqlite'
-import { cors } from '@elysiajs/cors'
+import { Elysia, t } from "elysia";
+import { Database } from "bun:sqlite";
+import { cors } from "@elysiajs/cors";
 
 const app = new Elysia();
 app.use(cors());
@@ -8,40 +8,52 @@ app.use(cors());
 // DB Config
 
 // Create DB If not Exists
-const DB = new Database("mydb.sqlite", { create: true })
+const DB = new Database("mydb.sqlite", { create: true });
 
-DB.query(`CREATE TABLE IF NOT EXISTS MESSAGES(
+DB.query(
+  `CREATE TABLE IF NOT EXISTS MESSAGES(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   message TEXT
-);`).run();
+);`
+).run();
 
-app.get('/', (context) => {
+// Routes
+
+app.get("/", (context) => {
   const query = DB.query(`SELECT * FROM MESSAGES;`);
-  const result = query.get();
-  console.log(result)
-
+  const result = query.all();
+  console.log(result);
 
   return new Response(JSON.stringify({ messages: result }), {
     headers: { "Content-Type": "application/json" },
   });
-})
-
-
-// Routes
-
-app.post("/add", ({ body }: any) => {
-  const message = body?.message
-  console.log(body.message)
-  const query = DB.query(`INSERT INTO MESSAGES (message) VALUES ('World')`);
-  query.run();
-  return new Response(JSON.stringify({ message: "Added" }), {
-    headers: { "Content-Type": "application/json" },
-  });
 });
 
-app.get("/hello/:name", (({ params: { name } }) => {
+app.post(
+  "/add",
+  ({ body }) => {
+    const message = body?.message;
+    console.log(message);
+    const query = DB.query(`INSERT INTO MESSAGES (message) VALUES (?1)`);
+    query.run(message);
+    return new Response(JSON.stringify({ message: "Added" }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+  {
+    body: t.Object({
+      message: t.String(),
+    }),
+  }
+);
+
+app.get("/hello/:name", ({ params: { name } }) => {
   return `Hello ${name}!`;
-}));
+});
+
+app.get("bye/:name", (context) => {
+  return `Hello ${context.params.name}`;
+});
 
 app.listen(8000);
 
