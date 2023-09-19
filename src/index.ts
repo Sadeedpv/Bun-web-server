@@ -23,6 +23,7 @@ app.get("/", (context) => {
   const query = DB.query(`SELECT * FROM MESSAGES;`);
   const result = query.all();
   console.log(result);
+  context.set.status = 200;
 
   return new Response(JSON.stringify({ messages: result }), {
     headers: { "Content-Type": "application/json" },
@@ -52,10 +53,11 @@ app.get("/hello/:name", ({ params: { name } }) => {
 });
 
 app.get("bye/:name", (context) => {
+  context.set.status = 200
   return `Hello ${context.params.name}`;
 });
 
-app.listen(8000);
+app.listen(Number(Bun.env.PORT));
 
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
