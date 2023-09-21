@@ -6,16 +6,21 @@ const app = new Elysia();
 app.use(cors());
 
 // DB Config
-
 // Create DB If not Exists
 const DB = new Database("mydb.sqlite", { create: true });
 
-DB.query(
-  `CREATE TABLE IF NOT EXISTS MESSAGES(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  message TEXT
-);`
-).run();
+try {
+  DB.query(
+    `CREATE TABLE IF NOT EXISTS MESSAGES(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    done BOOLEAN NOT NULL CHECK(done IN (0, 1))
+  );`
+  ).run();
+} catch (err) {
+  console.log("Error has occured: ", err);
+  process.exit(1);
+}
 
 // Routes
 
@@ -34,16 +39,20 @@ app.post(
   "/add",
   ({ body }) => {
     const message = body?.message;
+    const done = body?.done;
     console.log(message);
-    const query = DB.query(`INSERT INTO MESSAGES (message) VALUES (?1)`);
-    query.run(message);
-    return new Response(JSON.stringify({ message: "Added" }), {
+    const query = DB.query(
+      `INSERT INTO MESSAGES (message, done) VALUES (?1, ?2)`
+    );
+    query.run(message, done);
+    return new Response(JSON.stringify({ message: "Data Added!" }), {
       headers: { "Content-Type": "application/json" },
     });
   },
   {
     body: t.Object({
       message: t.String(),
+      done: t.Integer(),
     }),
   }
 );
@@ -53,6 +62,7 @@ app.put(
   (context) => {
     const id = context.params.id;
     const message = context.body.message;
+    const done = context.body.done;
     const query = DB.query("SELECT * FROM MESSAGES WHERE ID =?1;");
     if (query.all(id).length === 0) {
       context.set.status = 400;
@@ -66,13 +76,14 @@ app.put(
       );
     }
     const updateQuery = DB.query(
-      "UPDATE MESSAGES SET message=?1 WHERE ID = ?2"
+      "UPDATE MESSAGES SET message=?1, done=?2 WHERE ID = ?3"
     );
-    updateQuery.run(message, id);
+    updateQuery.run(message, done, id);
     context.set.status = 200;
+    let updatedData = query.get(id);
     return new Response(
       JSON.stringify({
-        message: "Database updated",
+        message: updatedData,
       }),
       {
         headers: {
@@ -84,6 +95,7 @@ app.put(
   {
     body: t.Object({
       message: t.String(),
+      done: t.Integer(),
     }),
   }
 );
@@ -91,6 +103,7 @@ app.put(
 app.delete("/delete/:id", (context) => {
   const id = context.params.id;
   const query = DB.query("SELECT * FROM MESSAGES WHERE ID=?1;");
+  let deletedData = query.all(id)[0];
   if (query.all(id).length === 0) {
     context.set.status = 400;
     return new Response(
@@ -101,12 +114,12 @@ app.delete("/delete/:id", (context) => {
         },
       }
     );
-  };
+  }
   const deleteQuery = DB.query("DELETE FROM MESSAGES WHERE ID=?1");
   deleteQuery.run(id);
   return new Response(
     JSON.stringify({
-      message: "Successfully deleted!",
+      message: deletedData,
     }),
     {
       headers: {
@@ -130,15 +143,46 @@ app.delete("/delete", (context) => {
     );
   }
   DB.exec("DELETE FROM MESSAGES;");
-  return new Response(
-    JSON.stringify({ message: "Database deleted!" }),
-    {
+  return new Response(JSON.stringify({ message: "Database deleted!" }), {
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+});
+
+app.patch(
+  "/patchdone/:id",
+  (context) => {
+    const id = context.params.id;
+    const done = context.body.done;
+    const query = DB.query("SELECT * FROM MESSAGES WHERE ID =?1;");
+    if (query.all(id).length === 0) {
+      context.set.status = 400;
+      return new Response(
+        JSON.stringify({
+          message: "Wrong parameter! Nothing to update here",
+        }),
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+    const patchQuery = DB.query("UPDATE MESSAGES SET done=?1 WHERE ID=?2;");
+    patchQuery.run(done, id);
+    return new Response(JSON.stringify({ message: "Database updated!" }), {
       headers: {
         "Content-Type": "application/json",
       },
-    }
-  );
-});
+    });
+  },
+  {
+    body: t.Object({
+      done: t.Integer(),
+    }),
+  }
+);
 
 app.get("/hello/:name", ({ params: { name } }) => {
   return `Hello ${name}!`;
@@ -149,9 +193,9 @@ app.get("bye/:name", (context) => {
   return `Hello ${context.params.name}`;
 });
 
-let PORT = Bun.env.PORT
-if (PORT == ""){
-  PORT = "8000"
+let PORT = Bun.env.PORT;
+if (PORT == "") {
+  PORT = "8000";
 }
 app.listen(Number(PORT));
 
