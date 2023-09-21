@@ -5,16 +5,31 @@ import { cors } from "@elysiajs/cors";
 const app = new Elysia();
 app.use(cors());
 
+// Error Handling
+app.onError(({ code, error }) => {
+  return new Response(error.toString(), {
+    status:500 // Internal Server Error
+  })
+});
+
 // DB Config
 // Create DB If not Exists
 const DB = new Database("mydb.sqlite", { create: true });
 
 try {
   DB.query(
+    `CREATE TABLE IF NOT EXISTS USERS(
+      userId INTEGER PRIMARY KEY
+      username VARCHAR(30) NOT NULL,
+      password TEXT NOT NULL
+    );`
+  ).run();
+  DB.query(
     `CREATE TABLE IF NOT EXISTS MESSAGES(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER,
     message TEXT NOT NULL,
-    done BOOLEAN NOT NULL CHECK(done IN (0, 1))
+    done BOOLEAN NOT NULL CHECK(done IN (0, 1)),
+    FOREIGN KEY(id) REFERENCES USERS(userId)
   );`
   ).run();
 } catch (err) {
@@ -193,11 +208,8 @@ app.get("bye/:name", (context) => {
   return `Hello ${context.params.name}`;
 });
 
-let PORT = Bun.env.PORT;
-if (PORT == "") {
-  PORT = "8000";
-}
-app.listen(Number(PORT));
+let PORT = Bun.env.PORT || 8000;
+app.listen(PORT);
 
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
