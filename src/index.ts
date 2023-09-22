@@ -1,10 +1,15 @@
 import { Elysia, t } from "elysia";
 import { Database } from "bun:sqlite";
 import { cors } from "@elysiajs/cors";
+import { cookie } from "@elysiajs/cookie";
+import { jwt } from "@elysiajs/jwt";
 
 const app = new Elysia();
 app.use(cors());
-
+app.use(jwt({
+  name: "jwt",
+  secret: Bun.env.JWT_TOKEN || "sasljhsal2j3hj32"
+})).use(cookie());
 // Error Handling
 app.onError(({ code, error }) => {
   return new Response(error.toString(), {
@@ -19,7 +24,7 @@ const DB = new Database("mydb.sqlite", { create: true });
 try {
   DB.query(
     `CREATE TABLE IF NOT EXISTS USERS(
-      userId INTEGER PRIMARY KEY
+      userId INTEGER PRIMARY KEY,
       username VARCHAR(30) NOT NULL,
       password TEXT NOT NULL
     );`
@@ -39,7 +44,30 @@ try {
 
 // Routes
 
-app.get("/", (context) => {
+// User Routes
+app.post("/register", async ({body, jwt, cookie, setCookie, params}) => {
+  const username = body.username;
+  const password = body.password;
+  const query = DB.query("INSERT INTO USERS(username, password) VALUES (?1, ?2);");
+  query.run(username, password);
+  let getQuery = DB.query("SELECT * FROM USERS;");
+  setCookie('auth', await jwt.sign(body), {
+    httpOnly: true,
+    maxAge:7*86400
+  })
+  return new Response(JSON.stringify({ messages: getQuery.all(), signed:cookie.auth }), {
+    headers: { "Content-Type": "application/json" },
+  });
+}, {
+  body: t.Object({
+    username: t.String(),
+    password: t.String()
+  })
+});
+
+// Message Routes
+
+app.get("/messages", (context) => {
   const query = DB.query(`SELECT * FROM MESSAGES;`);
   const result = query.all();
   console.log(result);
@@ -57,7 +85,7 @@ app.post(
     const done = body?.done;
     console.log(message);
     const query = DB.query(
-      `INSERT INTO MESSAGES (message, done) VALUES (?1, ?2)`
+      `INSERT INTO MESSAGES (message, done) VALUES (?1, ?2);`
     );
     query.run(message, done);
     return new Response(JSON.stringify({ message: "Data Added!" }), {
