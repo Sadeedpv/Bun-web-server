@@ -4,17 +4,24 @@ import { cors } from "@elysiajs/cors";
 import { cookie } from "@elysiajs/cookie";
 import { jwt } from "@elysiajs/jwt";
 
+interface User {
+  username?: string;
+  password: string;
+}
 const app = new Elysia();
 app.use(cors());
-app.use(jwt({
-  name: "jwt",
-  secret: Bun.env.JWT_TOKEN || "sasljhsal2j3hj32"
-})).use(cookie());
+app.use(
+  jwt({
+    name: "jwt",
+    secret: "sasljhsal2j3hj32",
+  })
+);
+app.use(cookie());
 // Error Handling
 app.onError(({ code, error }) => {
   return new Response(error.toString(), {
-    status:500 // Internal Server Error
-  })
+    status: 500, // Internal Server Error
+  });
 });
 
 // DB Config
@@ -45,33 +52,116 @@ try {
 // Routes
 
 // User Routes
-app.post("/register", async ({body, jwt, cookie, setCookie, params}) => {
-  const username = body.username;
-  const password = body.password;
-  const query = DB.query("INSERT INTO USERS(username, password) VALUES (?1, ?2);");
-  query.run(username, password);
-  let getQuery = DB.query("SELECT * FROM USERS;");
-  setCookie('auth', await jwt.sign(body), {
-    httpOnly: true,
-    maxAge:7*86400
-  })
-  return new Response(JSON.stringify({ messages: getQuery.all(), signed:cookie.auth }), {
-    headers: { "Content-Type": "application/json" },
-  });
-}, {
-  body: t.Object({
-    username: t.String(),
-    password: t.String()
-  })
-});
+app.post(
+  "/register",
+  ({ body }) => {
+    const username = body.username;
+    const password = body.password;
+    if (!username || !password) {
+      return new Response(
+        JSON.stringify({
+          error: "Empty JSON fields",
+        }),
+        {
+          status: 400,
+        }
+      );
+    }
+    // Check if an user already exists
+    let userExists = DB.prepare("SELECT * FROM USERS WHERE username=?1").get(
+      username
+    ) as User | undefined;
+    if (userExists?.username == username) {
+      return new Response(
+        JSON.stringify({
+          error: "User already Exists",
+        }),
+        {
+          status: 400,
+        }
+      );
+    }
+    const query = DB.query(
+      "INSERT INTO USERS(username, password) VALUES (?1, ?2);"
+    );
+    query.run(username, password);
+    let getQuery = DB.query("SELECT * FROM USERS;");
+    return new Response(JSON.stringify({ messages: getQuery.all() }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+  {
+    body: t.Object({
+      username: t.String(),
+      password: t.String(),
+    }),
+  }
+);
 
+app.post(
+  "/login",
+  async ({ body, jwt, cookie, setCookie, set }) => {
+    const username = body.username;
+    const password = body.password;
+    let userExists = DB.prepare("SELECT * FROM USERS WHERE username = ?1").all(
+      username
+    ).length;
+    if (userExists == 0) {
+      set.status = 400;
+      return new Response(
+        JSON.stringify({
+          error: "Wrong username",
+        })
+      );
+    }
+    let DBuser = DB.query("SELECT password from USERS WHERE username=?1;").get(
+      username
+    ) as User | undefined;
+    if (!DBuser || DBuser?.password !== password) {
+      set.status = 400;
+      return new Response(
+        JSON.stringify({
+          error: "Wrong password",
+        })
+      );
+    }
+    setCookie("auth", await jwt.sign(username), {
+      httpOnly: true,
+      maxAge: 7 * 86400,
+      path:"/"
+    });
+    set.status = 200;
+    return new Response(
+      JSON.stringify({
+        message: `Logged in as ${username}`,
+        cookie: cookie.auth,
+      })
+    );
+  },
+  {
+    body: t.Object({
+      username: t.String(),
+      password: t.String(),
+    }),
+  }
+);
 // Message Routes
 
-app.get("/messages", (context) => {
+app.get("/messages", async ({ set, jwt, cookie }) => {
+  const profile = await jwt.verify(cookie.auth);
+  console.log(cookie, cookie.auth, cookie.test);
+  if (!profile) {
+    set.status = 401;
+    return new Response(
+      JSON.stringify({
+        error: "Please login!",
+        cookie: profile,
+      })
+    );
+  }
   const query = DB.query(`SELECT * FROM MESSAGES;`);
   const result = query.all();
   console.log(result);
-  context.set.status = 200;
 
   return new Response(JSON.stringify({ messages: result }), {
     headers: { "Content-Type": "application/json" },
