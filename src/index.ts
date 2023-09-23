@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { Database } from "bun:sqlite";
 import { cors } from "@elysiajs/cors";
-import { cookie } from "@elysiajs/cookie";
+// import { cookie } from "@elysiajs/cookie";
 import { jwt } from "@elysiajs/jwt";
 
 interface User {
@@ -16,7 +16,7 @@ app.use(
     secret: "sasljhsal2j3hj32",
   })
 );
-app.use(cookie());
+// app.use(cookie());
 // Error Handling
 app.onError(({ code, error }) => {
   return new Response(error.toString(), {
@@ -54,7 +54,7 @@ try {
 // User Routes
 app.post(
   "/register",
-  ({ body }) => {
+  async ({ body }) => {
     const username = body.username;
     const password = body.password;
     if (!username || !password) {
@@ -81,10 +81,11 @@ app.post(
         }
       );
     }
+    const hashedPassword = await Bun.password.hash(password)
     const query = DB.query(
       "INSERT INTO USERS(username, password) VALUES (?1, ?2);"
     );
-    query.run(username, password);
+    query.run(username, hashedPassword);
     let getQuery = DB.query("SELECT * FROM USERS;");
     return new Response(JSON.stringify({ messages: getQuery.all() }), {
       headers: { "Content-Type": "application/json" },
@@ -100,7 +101,7 @@ app.post(
 
 app.post(
   "/login",
-  async ({ body, jwt, cookie, setCookie, set }) => {
+  async ({ body, jwt, set, cookie: { auth } }) => {
     const username = body.username;
     const password = body.password;
     let userExists = DB.prepare("SELECT * FROM USERS WHERE username = ?1").all(
@@ -117,7 +118,8 @@ app.post(
     let DBuser = DB.query("SELECT password from USERS WHERE username=?1;").get(
       username
     ) as User | undefined;
-    if (!DBuser || DBuser?.password !== password) {
+    const isMatch = Bun.password.verify(password, DBuser?.password || '')
+    if (!DBuser || !isMatch) {
       set.status = 400;
       return new Response(
         JSON.stringify({
@@ -125,16 +127,22 @@ app.post(
         })
       );
     }
-    setCookie("auth", await jwt.sign(username), {
+
+    const profile = {
+      username: username,
+    };
+    const token = await jwt.sign(profile);
+    auth.set({
+      value: token,
       httpOnly: true,
-      maxAge: 7 * 86400,
-      path:"/"
-    });
+      sameSite: true
+    })
+
     set.status = 200;
     return new Response(
       JSON.stringify({
         message: `Logged in as ${username}`,
-        cookie: cookie.auth,
+        cookie: auth.value,
       })
     );
   },
@@ -143,30 +151,41 @@ app.post(
       username: t.String(),
       password: t.String(),
     }),
+    cookie: t.Cookie({
+      value:t.Optional(t.String())
+    })
   }
 );
 // Message Routes
 
-app.get("/messages", async ({ set, jwt, cookie }) => {
-  const profile = await jwt.verify(cookie.auth);
-  console.log(cookie, cookie.auth, cookie.test);
-  if (!profile) {
-    set.status = 401;
-    return new Response(
-      JSON.stringify({
-        error: "Please login!",
-        cookie: profile,
-      })
-    );
-  }
-  const query = DB.query(`SELECT * FROM MESSAGES;`);
-  const result = query.all();
-  console.log(result);
+app.get(
+  "/messages",
+  async ({ set, jwt, cookie: { auth } }) => {
+    const profile = await jwt.verify(auth.value);
+    console.log(auth.value);
+    if (!profile) {
+      set.status = 401;
+      return new Response(
+        JSON.stringify({
+          error: "Please login!",
+          cookie: profile,
+        })
+      );
+    }
+    const query = DB.query(`SELECT * FROM MESSAGES;`);
+    const result = query.all();
+    console.log(result);
 
-  return new Response(JSON.stringify({ messages: result }), {
-    headers: { "Content-Type": "application/json" },
-  });
-});
+    return new Response(JSON.stringify({ messages: result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+  {
+    cookie: t.Cookie({
+      value: t.Optional(t.String()),
+    }),
+  }
+);
 
 app.post(
   "/add",
