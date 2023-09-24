@@ -1,15 +1,28 @@
 import { Elysia, t } from "elysia";
 import { Database } from "bun:sqlite";
 import { cors } from "@elysiajs/cors";
-// import { cookie } from "@elysiajs/cookie";
 import { jwt } from "@elysiajs/jwt";
 
 interface User {
   username?: string;
-  password: string;
+  password?: string;
 }
+
+interface userId {
+  userId: number;
+}
+
+let flag: string;
+
 const app = new Elysia();
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:8000"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allowedHeaders: "*",
+    exposedHeaders: "*",
+  })
+);
 app.use(
   jwt({
     name: "jwt",
@@ -81,7 +94,7 @@ app.post(
         }
       );
     }
-    const hashedPassword = await Bun.password.hash(password)
+    const hashedPassword = await Bun.password.hash(password);
     const query = DB.query(
       "INSERT INTO USERS(username, password) VALUES (?1, ?2);"
     );
@@ -118,7 +131,7 @@ app.post(
     let DBuser = DB.query("SELECT password from USERS WHERE username=?1;").get(
       username
     ) as User | undefined;
-    const isMatch = Bun.password.verify(password, DBuser?.password || '')
+    const isMatch = Bun.password.verify(password, DBuser?.password || "");
     if (!DBuser || !isMatch) {
       set.status = 400;
       return new Response(
@@ -132,11 +145,16 @@ app.post(
       username: username,
     };
     const token = await jwt.sign(profile);
+    flag = token;
     auth.set({
       value: token,
       httpOnly: true,
-      sameSite: true
-    })
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+      domain: "localhost",
+      maxAge: 60 * 60 * 24 * 7, // 1 week
+    });
 
     set.status = 200;
     return new Response(
@@ -152,8 +170,8 @@ app.post(
       password: t.String(),
     }),
     cookie: t.Cookie({
-      value:t.Optional(t.String())
-    })
+      value: t.Optional(t.String()),
+    }),
   }
 );
 // Message Routes
@@ -161,8 +179,8 @@ app.post(
 app.get(
   "/messages",
   async ({ set, jwt, cookie: { auth } }) => {
-    const profile = await jwt.verify(auth.value);
-    console.log(auth.value);
+    const profile = await jwt.verify(flag);
+    console.log(profile);
     if (!profile) {
       set.status = 401;
       return new Response(
@@ -172,8 +190,12 @@ app.get(
         })
       );
     }
-    const query = DB.query(`SELECT * FROM MESSAGES;`);
-    const result = query.all();
+    const userId = DB.query("SELECT userId FROM USERS WHERE username=?1").get(
+      profile.username
+    ) as userId;
+    const id = userId?.userId;
+    const query = DB.query(`SELECT * FROM MESSAGES WHERE id=?1;`);
+    const result = query.all(id);
     console.log(result);
 
     return new Response(JSON.stringify({ messages: result }), {
@@ -189,16 +211,34 @@ app.get(
 
 app.post(
   "/add",
-  ({ body }) => {
+  async ({ body, jwt, cookie: { auth } }) => {
+    const profile = await jwt.verify(flag);
+    console.log(profile);
+    if (!profile) {
+      return new Response(
+        JSON.stringify({
+          error: "Please login!",
+          cookie: profile,
+        }),
+        {
+          status: 401,
+        }
+      );
+    }
     const message = body?.message;
     const done = body?.done;
     console.log(message);
+    const userId = DB.query("SELECT userId FROM USERS WHERE username=?1").get(
+      profile.username
+    ) as userId;
+    const id = userId?.userId;
     const query = DB.query(
-      `INSERT INTO MESSAGES (message, done) VALUES (?1, ?2);`
+      `INSERT INTO MESSAGES (id, message, done) VALUES (?1, ?2, ?3);`
     );
-    query.run(message, done);
+    query.run(id, message, done);
     return new Response(JSON.stringify({ message: "Data Added!" }), {
       headers: { "Content-Type": "application/json" },
+      status: 200,
     });
   },
   {
