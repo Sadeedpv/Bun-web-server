@@ -15,7 +15,7 @@ type SingleUser = {
   password?: string;
 };
 
-type Message = {
+export type Message = {
   id: number;
   messageId: number;
   message: string;
@@ -24,7 +24,7 @@ type Message = {
 
 let flag: string;
 
-const app = new Elysia();
+export const app = new Elysia();
 app.use(
   cors({
     origin: ["http://localhost:8000"],
@@ -39,7 +39,6 @@ app.use(
     secret: "sasljhsal2j3hj32",
   })
 );
-// app.use(cookie());
 // Error Handling
 app.onError(({ code, error }) => {
   return new Response(error.toString(), {
@@ -138,7 +137,7 @@ app.post(
         })
       );
     }
-    const isMatch = Bun.password.verify(
+    const isMatch = await Bun.password.verify(
       password,
       userExists[0]?.password || ""
     );
@@ -460,7 +459,7 @@ app.get("/hello/:name", ({ params: { name } }) => {
 
 app.get("bye/:name", (context) => {
   context.set.status = 200;
-  return `Hello ${context.params.name}`;
+  return `Bye ${context.params.name}!`;
 });
 
 let PORT = Bun.env.PORT || 8000;
