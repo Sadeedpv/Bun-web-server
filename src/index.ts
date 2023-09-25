@@ -3,14 +3,24 @@ import { Database } from "bun:sqlite";
 import { cors } from "@elysiajs/cors";
 import { jwt } from "@elysiajs/jwt";
 
-interface User {
+type User = {
+  userId: number;
+  username: string;
+  password: string;
+}[];
+
+type SingleUser = {
+  userId: number;
   username?: string;
   password?: string;
-}
+};
 
-interface userId {
-  userId: number;
-}
+type Message = {
+  id: number;
+  messageId: number;
+  message: string;
+  done: boolean;
+}[];
 
 let flag: string;
 
@@ -52,6 +62,7 @@ try {
   DB.query(
     `CREATE TABLE IF NOT EXISTS MESSAGES(
     id INTEGER,
+    messageId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     message TEXT NOT NULL,
     done BOOLEAN NOT NULL CHECK(done IN (0, 1)),
     FOREIGN KEY(id) REFERENCES USERS(userId)
@@ -83,7 +94,7 @@ app.post(
     // Check if an user already exists
     let userExists = DB.prepare("SELECT * FROM USERS WHERE username=?1").get(
       username
-    ) as User | undefined;
+    ) as SingleUser | undefined;
     if (userExists?.username == username) {
       return new Response(
         JSON.stringify({
@@ -99,8 +110,7 @@ app.post(
       "INSERT INTO USERS(username, password) VALUES (?1, ?2);"
     );
     query.run(username, hashedPassword);
-    let getQuery = DB.query("SELECT * FROM USERS;");
-    return new Response(JSON.stringify({ messages: getQuery.all() }), {
+    return new Response(JSON.stringify({ messages: `Registered as ${username}` }), {
       headers: { "Content-Type": "application/json" },
     });
   },
@@ -119,8 +129,8 @@ app.post(
     const password = body.password;
     let userExists = DB.prepare("SELECT * FROM USERS WHERE username = ?1").all(
       username
-    ).length;
-    if (userExists == 0) {
+    ) as User;
+    if (userExists.length == 0) {
       set.status = 400;
       return new Response(
         JSON.stringify({
@@ -128,11 +138,11 @@ app.post(
         })
       );
     }
-    let DBuser = DB.query("SELECT password from USERS WHERE username=?1;").get(
-      username
-    ) as User | undefined;
-    const isMatch = Bun.password.verify(password, DBuser?.password || "");
-    if (!DBuser || !isMatch) {
+    const isMatch = Bun.password.verify(
+      password,
+      userExists[0]?.password || ""
+    );
+    if (!isMatch) {
       set.status = 400;
       return new Response(
         JSON.stringify({
@@ -142,7 +152,8 @@ app.post(
     }
 
     const profile = {
-      username: username,
+      userId: userExists[0].userId,
+      username: userExists[0].username,
     };
     const token = await jwt.sign(profile);
     flag = token;
@@ -179,7 +190,7 @@ app.post(
 app.get(
   "/messages",
   async ({ set, jwt, cookie: { auth } }) => {
-    const profile = await jwt.verify(flag);
+    const profile: SingleUser = await jwt.verify(flag);
     console.log(profile);
     if (!profile) {
       set.status = 401;
@@ -190,12 +201,8 @@ app.get(
         })
       );
     }
-    const userId = DB.query("SELECT userId FROM USERS WHERE username=?1").get(
-      profile.username
-    ) as userId;
-    const id = userId?.userId;
     const query = DB.query(`SELECT * FROM MESSAGES WHERE id=?1;`);
-    const result = query.all(id);
+    const result = query.all(profile?.userId || 0);
     console.log(result);
 
     return new Response(JSON.stringify({ messages: result }), {
@@ -212,7 +219,7 @@ app.get(
 app.post(
   "/add",
   async ({ body, jwt, cookie: { auth } }) => {
-    const profile = await jwt.verify(flag);
+    const profile: SingleUser = await jwt.verify(flag);
     console.log(profile);
     if (!profile) {
       return new Response(
@@ -227,15 +234,22 @@ app.post(
     }
     const message = body?.message;
     const done = body?.done;
-    console.log(message);
-    const userId = DB.query("SELECT userId FROM USERS WHERE username=?1").get(
-      profile.username
-    ) as userId;
-    const id = userId?.userId;
+
+    if (!message) {
+      return new Response(
+        JSON.stringify({
+          error: "Empty JSON fields",
+        }),
+        {
+          status: 400,
+        }
+      );
+    }
+
     const query = DB.query(
       `INSERT INTO MESSAGES (id, message, done) VALUES (?1, ?2, ?3);`
     );
-    query.run(id, message, done);
+    query.run(profile?.userId, message, done);
     return new Response(JSON.stringify({ message: "Data Added!" }), {
       headers: { "Content-Type": "application/json" },
       status: 200,
@@ -251,13 +265,36 @@ app.post(
 
 app.put(
   "/update/:id",
-  (context) => {
-    const id = context.params.id;
-    const message = context.body.message;
-    const done = context.body.done;
-    const query = DB.query("SELECT * FROM MESSAGES WHERE ID =?1;");
-    if (query.all(id).length === 0) {
-      context.set.status = 400;
+  async ({ body, params, set, jwt, cookie: { auth } }) => {
+    const profile: SingleUser = await jwt.verify(flag);
+    console.log(profile);
+    if (!profile) {
+      return new Response(
+        JSON.stringify({
+          error: "Please login!",
+          cookie: profile,
+        }),
+        {
+          status: 401,
+        }
+      );
+    }
+    const id = params.id;
+    const message = body.message;
+    const done = body.done;
+    if (!message) {
+      return new Response(
+        JSON.stringify({
+          error: "Empty JSON fields",
+        }),
+        {
+          status: 400,
+        }
+      )
+    }
+    const query = DB.query("SELECT * FROM MESSAGES WHERE messageId = ?1 AND id = ?2;");
+    if (query.all(id, profile.userId).length === 0) {
+      set.status = 400;
       return new Response(
         JSON.stringify({ message: "Wrong parameter! Nothing to update here" }),
         {
@@ -268,11 +305,11 @@ app.put(
       );
     }
     const updateQuery = DB.query(
-      "UPDATE MESSAGES SET message=?1, done=?2 WHERE ID = ?3"
+      "UPDATE MESSAGES SET message=?1, done=?2 WHERE messageId = ?3 AND id = ?4;"
     );
-    updateQuery.run(message, done, id);
-    context.set.status = 200;
-    let updatedData = query.get(id);
+    updateQuery.run(message, done, id, profile.userId);
+    set.status = 200;
+    let updatedData = query.get(id, profile.userId);
     return new Response(
       JSON.stringify({
         message: updatedData,
@@ -292,12 +329,25 @@ app.put(
   }
 );
 
-app.delete("/delete/:id", (context) => {
-  const id = context.params.id;
-  const query = DB.query("SELECT * FROM MESSAGES WHERE ID=?1;");
-  let deletedData = query.all(id)[0];
+app.delete("/delete/:id", async ({ params, set, jwt, cookie: { auth } }) => {
+  const profile: SingleUser = await jwt.verify(flag);
+  console.log(profile);
+  if (!profile) {
+    return new Response(
+      JSON.stringify({
+        error: "Please login!",
+        cookie: profile,
+      }),
+      {
+        status: 401,
+      }
+    );
+  }
+  const id = params.id;
+  const query = DB.query("SELECT * FROM MESSAGES WHERE messageId = ?1 AND ID = ?2;");
+  let deletedData = query.all(id, profile.userId)[0];
   if (query.all(id).length === 0) {
-    context.set.status = 400;
+    set.status = 400;
     return new Response(
       JSON.stringify({ message: "Wrong parameter! Nothing to delete here" }),
       {
@@ -307,8 +357,9 @@ app.delete("/delete/:id", (context) => {
       }
     );
   }
-  const deleteQuery = DB.query("DELETE FROM MESSAGES WHERE ID=?1");
-  deleteQuery.run(id);
+  const deleteQuery = DB.query("DELETE FROM MESSAGES WHERE messageId = ?1 AND ID = ?2");
+  deleteQuery.run(id, profile.userId);
+  set.status = 200;
   return new Response(
     JSON.stringify({
       message: deletedData,
@@ -321,10 +372,23 @@ app.delete("/delete/:id", (context) => {
   );
 });
 
-app.delete("/delete", (context) => {
-  const query = DB.query("SELECT * FROM MESSAGES;");
-  if (query.all().length === 0) {
-    context.set.status = 404;
+app.delete("/delete", async ({ set, jwt, cookie: { auth } }) => {
+  const profile: SingleUser = await jwt.verify(flag);
+  console.log(profile);
+  if (!profile) {
+    return new Response(
+      JSON.stringify({
+        error: "Please login!",
+        cookie: profile,
+      }),
+      {
+        status: 401,
+      }
+    );
+  }
+  const query = DB.query("SELECT * FROM MESSAGES WHERE ID = ?1;");
+  if (query.all(profile.userId).length === 0) {
+    set.status = 404;
     return new Response(
       JSON.stringify({ message: "Database is Empty! Nothing to delete" }),
       {
@@ -334,7 +398,8 @@ app.delete("/delete", (context) => {
       }
     );
   }
-  DB.exec("DELETE FROM MESSAGES;");
+  DB.prepare("DELETE FROM MESSAGES WHERE ID = ?1;").run(profile.userId);
+  set.status = 200;
   return new Response(JSON.stringify({ message: "Database deleted!" }), {
     headers: {
       "Content-Type": "application/json",
@@ -344,12 +409,25 @@ app.delete("/delete", (context) => {
 
 app.patch(
   "/patchdone/:id",
-  (context) => {
-    const id = context.params.id;
-    const done = context.body.done;
-    const query = DB.query("SELECT * FROM MESSAGES WHERE ID =?1;");
-    if (query.all(id).length === 0) {
-      context.set.status = 400;
+  async ({ body, params, set, jwt, cookie: { auth } }) => {
+    const profile: SingleUser = await jwt.verify(flag);
+    console.log(profile);
+    if (!profile) {
+      return new Response(
+        JSON.stringify({
+          error: "Please login!",
+          cookie: profile,
+        }),
+        {
+          status: 401,
+        }
+      );
+    }
+    const id = params.id;
+    const done = body.done;
+    const query = DB.query("SELECT * FROM MESSAGES WHERE messageId = ?1 AND ID = ?1;");
+    if (query.all(id, profile.userId).length === 0) {
+      set.status = 400;
       return new Response(
         JSON.stringify({
           message: "Wrong parameter! Nothing to update here",
@@ -361,8 +439,8 @@ app.patch(
         }
       );
     }
-    const patchQuery = DB.query("UPDATE MESSAGES SET done=?1 WHERE ID=?2;");
-    patchQuery.run(done, id);
+    const patchQuery = DB.query("UPDATE MESSAGES SET done=?1 WHERE messageId = ?2 AND ID = ?3;");
+    patchQuery.run(done, id, profile.userId);
     return new Response(JSON.stringify({ message: "Database updated!" }), {
       headers: {
         "Content-Type": "application/json",
