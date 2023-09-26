@@ -10,12 +10,23 @@ interface Messages {
   messages: [];
 }
 
+interface ResponseMessage {
+  message: {
+    id: number;
+    messageId: number;
+    message: string;
+    done: number;
+  };
+}
+
 describe("Elysia bun server", () => {
   // User credentials
   const username = "Sadeedpv";
   const password = "123456";
   const wrongUsername = "pvdeedaS";
   const wrongPassword = "654321";
+  const Message = "Hello World";
+  const updatedMessage = "Hello World!!";
 
   // Basic unit tests
   it("Returns hello + params", async () => {
@@ -115,34 +126,108 @@ describe("Elysia bun server", () => {
     );
   });
 
-    it("Displays Username error message", async () => {
-      const res = await app
-        .handle(
-          new Request("http://localhost:8000/login", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              username: wrongUsername,
-              password: wrongPassword,
-            }),
-          })
-        )
-        .then((res) => res.text());
-      expect(res).toBe(
-        JSON.stringify({
-          error: "Wrong username",
+  it("Displays Username error message", async () => {
+    const res = await app
+      .handle(
+        new Request("http://localhost:8000/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            username: wrongUsername,
+            password: wrongPassword,
+          }),
         })
-      );
-    });
+      )
+      .then((res) => res.text());
+    expect(res).toBe(
+      JSON.stringify({
+        error: "Wrong username",
+      })
+    );
+  });
 
   // Display messages
+  // GET messages
   it("Displays message Array", async () => {
     const res = (await app
       .handle(new Request("http://localhost:8000/messages"))
       .then((res) => res.text())
       .then((text) => JSON.parse(text))) as Messages;
     expect(Array.isArray(res.messages)).toBe(true);
+  });
+
+  // POST messages
+  it("Posts messages to DB", async () => {
+    const res = await app
+      .handle(
+        new Request("http://localhost:8000/add", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: Message,
+            done: 0,
+          }),
+        })
+      )
+      .then((res) => res.text());
+    expect(res).toBe(JSON.stringify({ message: "Data Added!" }));
+  });
+
+  // UPDATE messages
+  it("Updates messages", async () => {
+    const res = (await app
+      .handle(
+        new Request("http://localhost:8000/update/1", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: updatedMessage,
+            done: 0,
+          }),
+        })
+      )
+      .then((res) => res.text())
+      .then((text) => JSON.parse(text))) as ResponseMessage;
+    expect(res?.message?.message).toBe(updatedMessage);
+  });
+
+  // Patch Messages
+  it("Patch messages", async () => {
+    const res = await app
+      .handle(
+        new Request("http://localhost:8000/patchdone/1", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            done: 1,
+          }),
+        })
+      )
+      .then((res) => res.text());
+    expect(res).toBe(JSON.stringify({ message: "Database updated!" }));
+  });
+
+  // DELETE messages
+  it("Deletes messages", async () => {
+    const res = (await app
+      .handle(
+        new Request("http://localhost:8000/delete/1", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        })
+      )
+      .then((res) => res.text())
+      .then((text) => JSON.parse(text))) as ResponseMessage;
+    expect(res.message.message).toBe(updatedMessage);
   });
 });
