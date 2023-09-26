@@ -345,7 +345,7 @@ app.delete("/delete/:id", async ({ params, set, jwt, cookie: { auth } }) => {
   const id = params.id;
   const query = DB.query("SELECT * FROM MESSAGES WHERE messageId = ?1 AND ID = ?2;");
   let deletedData = query.all(id, profile.userId)[0];
-  if (query.all(id).length === 0) {
+  if (query.all(id, profile.userId).length === 0) {
     set.status = 400;
     return new Response(
       JSON.stringify({ message: "Wrong parameter! Nothing to delete here" }),
@@ -356,7 +356,7 @@ app.delete("/delete/:id", async ({ params, set, jwt, cookie: { auth } }) => {
       }
     );
   }
-  const deleteQuery = DB.query("DELETE FROM MESSAGES WHERE messageId = ?1 AND ID = ?2");
+  const deleteQuery = DB.query("DELETE FROM MESSAGES WHERE messageId = ?1 AND ID = ?2;");
   deleteQuery.run(id, profile.userId);
   set.status = 200;
   return new Response(
@@ -424,7 +424,7 @@ app.patch(
     }
     const id = params.id;
     const done = body.done;
-    const query = DB.query("SELECT * FROM MESSAGES WHERE messageId = ?1 AND ID = ?1;");
+    const query = DB.query("SELECT * FROM MESSAGES WHERE messageId = ?1 AND ID = ?2;");
     if (query.all(id, profile.userId).length === 0) {
       set.status = 400;
       return new Response(
